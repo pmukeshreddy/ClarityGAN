@@ -13,6 +13,7 @@ from dataset import get_dataloaders
 from generator import create_generator
 
 
+
 class ClarityGANEvaluator:
     def __init__(self, config, model_path):
         self.config = config
