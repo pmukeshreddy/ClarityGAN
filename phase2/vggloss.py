@@ -10,7 +10,8 @@ class VGGPerceptualLoss(nn.Module):
         self.loss = nn.L1Loss()
 
     def forward(self, generated, target):
-        
+        generated_norm = (generated + 1) / 2
+        target_norm = (target + 1) / 2
         vgg_generated = self.vgg_layers(generated)
         vgg_target = self.vgg_layers(target)
         return self.loss(vgg_generated, vgg_target)
