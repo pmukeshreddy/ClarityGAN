@@ -1,88 +1,100 @@
-"""
-ClarityGAN Generator Module - U-Net Architecture
-"""
-
-import torch
 import torch.nn as nn
-
+import torch
 
 class UNetGenerator(nn.Module):
-    def __init__(self, input_channels=3, output_channels=3):
-        """
-        U-Net Generator for image deblurring
-        
-        Args:
-            input_channels: Number of input channels (3 for RGB)
-            output_channels: Number of output channels (3 for RGB)
-        """
+    def __init__(self):
         super(UNetGenerator, self).__init__()
 
-        # Encoder layers
-        self.enc1 = self._encoder_block(input_channels, 64, norm=False)
-        self.enc2 = self._encoder_block(64, 128)
-        self.enc3 = self._encoder_block(128, 256)
-        self.enc4 = self._encoder_block(256, 512)
-        self.enc5 = self._encoder_block(512, 512)
-
-        # Decoder layers
-        self.dec1 = self._decoder_block(512, 512)
-        self.dec2 = self._decoder_block(1024, 256)  # 512 from dec + 512 from skip
-        self.dec3 = self._decoder_block(512, 128)   # 256 + 256
-        self.dec4 = self._decoder_block(256, 64)    # 128 + 128
-        self.dec5 = self._decoder_block(128, 64)    # 64 + 64
-
-        # Output layer
-        self.output = nn.Conv2d(64, output_channels, kernel_size=1)
-        self.tanh = nn.Tanh()
-
-    def _encoder_block(self, in_channels, out_channels, norm=True):
-        """Create encoder block"""
-        layers = [
-            nn.Conv2d(in_channels, out_channels, kernel_size=4, stride=2, padding=1),
-        ]
-        if norm:
-            layers.append(nn.BatchNorm2d(out_channels))
-        layers.append(nn.LeakyReLU(0.2, inplace=True))
-        return nn.Sequential(*layers)
-
-    def _decoder_block(self, in_channels, out_channels):
-        """Create decoder block"""
-        return nn.Sequential(
-            nn.ConvTranspose2d(in_channels, out_channels, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
+        self.enc1 = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.enc2 = nn.Sequential(
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.enc3 = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.enc4 = nn.Sequential(
+            nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.enc5 = nn.Sequential(
+            nn.Conv2d(512, 512, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True)
         )
 
-    def forward(self, x):
-        """Forward pass through U-Net"""
-        # Encoder
-        e1 = self.enc1(x)    # 64 channels
-        e2 = self.enc2(e1)   # 128 channels
-        e3 = self.enc3(e2)   # 256 channels
-        e4 = self.enc4(e3)   # 512 channels
-        bottleneck = self.enc5(e4)  # 512 channels
+        self.bottleneck_res = nn.Sequential(ResidualBlock(512),ResidualBlock(512),ResidualBlock(512))
+        self.bottleneck_attn = SelfAttention(512)
+        
+        self.dec1 = nn.Sequential(
+            nn.ConvTranspose2d(512, 512, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True)
+        )
+        self.dec1_res = ResidualBlock(1024)
+        self.dec2 = nn.Sequential(
+            nn.ConvTranspose2d(1024, 256, kernel_size=4, stride=2, padding=1),  # 512 from dec + 512 from skip
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True)
+        )
+        self.dec2_res = ResidualBlock(512) 
+        self.dec2_attention = SelfAttention(512)
+        self.dec3 = nn.Sequential(
+            nn.ConvTranspose2d(512, 128, kernel_size=4, stride=2, padding=1),  # 256 + 256
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True)
+        )
+        self.dec3_res = ResidualBlock(256)
+        self.dec4 = nn.Sequential(
+            nn.ConvTranspose2d(256, 64, kernel_size=4, stride=2, padding=1),  # 128 + 128
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
+        )
+        self.dec4_res = ResidualBlock(128)
+        self.dec5 = nn.Sequential(
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),  # 64 + 64
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
+        )
+        self.out = nn.Conv2d(64, 3, kernel_size=1)
+        self.tanh = nn.Tanh()
+    def forward(self,x):
+        e1 = self.enc1(x)
+        e2 = self.enc2(e1)
+        e3 = self.enc3(e2) #256
+        e4 = self.enc4(e3) #512
+        e5 = self.enc5(e4) #outputs 512 as well
 
-        # Decoder with skip connections
-        d1 = self.dec1(bottleneck)  # 512 channels
-        d1 = torch.cat([d1, e4], dim=1)  # Skip connection: 1024 channels
+        bott = self.bottleneck_res(e5)
+        bott = self.bottleneck_attn(bott)
+        
 
-        d2 = self.dec2(d1)  # 256 channels
-        d2 = torch.cat([d2, e3], dim=1)  # Skip connection: 512 channels
-
-        d3 = self.dec3(d2)  # 128 channels
-        d3 = torch.cat([d3, e2], dim=1)  # Skip connection: 256 channels
-
-        d4 = self.dec4(d3)  # 64 channels
-        d4 = torch.cat([d4, e1], dim=1)  # Skip connection: 128 channels
-
-        d5 = self.dec5(d4)  # 64 channels
-
-        # Output
-        output = self.output(d5)
-        return self.tanh(output)
-
-
-def create_generator(device):
-    """Factory function to create and initialize generator"""
-    generator = UNetGenerator()
-    return generator.to(device)
+        d1 = self.dec1(bott)                    # 512 channels
+        d1_skip = torch.cat([d1, e4], dim=1)    # 1024 channels
+        d1_skip = self.dec1_res(d1_skip)        # Enhanced with residuals
+        
+        d2 = self.dec2(d1_skip)                 #256
+        d2_skip = torch.cat([d2, e3], dim=1)    #256*2
+        d2_skip = self.dec2_res(d2_skip)       
+        d2_skip = self.dec2_attention(d2_skip)  
+        
+        d3 = self.dec3(d2_skip)                 # 128 channels
+        d3_skip = torch.cat([d3, e2], dim=1)    # 128*2 channels
+        d3_skip = self.dec3_res(d3_skip)        # Enhanced with residuals
+        
+        d4 = self.dec4(d3_skip)                 # 64 channels
+        d4_skip = torch.cat([d4, e1], dim=1)    # 128 channels
+        d4_skip = self.dec4_res(d4_skip)        # Enhanced with residuals
+        
+        d5 = self.dec5(d4_skip)                 # 64 channels
+        
+        out = self.out(d5)
+        return self.tanh(out)
+        
