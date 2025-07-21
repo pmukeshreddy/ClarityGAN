@@ -65,6 +65,9 @@ class GoProDataset(Dataset):
         # Convert to tensors
         blur_tensor = torch.from_numpy(blur_crop.transpose(2, 0, 1).copy()).float()
         sharp_tensor = torch.from_numpy(sharp_crop.transpose(2, 0, 1).copy()).float()
+
+        blur_tensor = blur_tensor * 2 - 1
+        sharp_crop = sharp_crop * 2 - 1
         
         return blur_tensor, sharp_tensor
 
