@@ -12,6 +12,14 @@ class VGGPerceptualLoss(nn.Module):
     def forward(self, generated, target):
         generated_norm = (generated + 1) / 2
         target_norm = (target + 1) / 2
-        vgg_generated = self.vgg_layers(generated)
-        vgg_target = self.vgg_layers(target)
+        
+        # Add ImageNet normalization
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(generated.device)
+        std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(generated.device)
+        
+        generated_norm = (generated_norm - mean) / std
+        target_norm = (target_norm - mean) / std
+        
+        vgg_generated = self.vgg_layers(generated_norm)
+        vgg_target = self.vgg_layers(target_norm)
         return self.loss(vgg_generated, vgg_target)
